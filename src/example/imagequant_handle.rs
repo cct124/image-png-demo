@@ -165,3 +165,73 @@ pub fn apng_handle(path: &str) {
         }
     }
 }
+
+pub fn apng_imagequant_handle(path: &str) {
+    let decoder = png::Decoder::new(File::open(path).unwrap());
+    let mut reader = decoder.read_info().unwrap();
+    let mut frames: Vec<Frame> = vec![];
+    let mut merge: Vec<rgb::RGBA8> = vec![];
+
+    let mut attr = imagequant::new();
+    attr.set_speed(1).unwrap();
+    attr.set_quality(0, 100).unwrap();
+    let mut histogram = imagequant::Histogram::new(&attr);
+
+    loop {
+        let mut buf = vec![0; reader.output_buffer_size()];
+        if let Result::Ok(output) = reader.next_frame(&mut buf) {
+            let info = reader.info();
+            let bytes = &buf[..output.buffer_size()];
+            if let Some(control) = info.frame_control() {
+                let frame = Frame::new(
+                    bytes.to_vec(),
+                    control.width,
+                    control.height,
+                    control.x_offset,
+                    control.y_offset,
+                    control.delay_num,
+                    control.delay_den,
+                    control.dispose_op,
+                    control.blend_op,
+                );
+                frames.push(frame);
+                let pixels = rgb::FromSlice::as_rgba(bytes);
+                println!("{}", pixels.len());
+                // merge.extend_from_slice(pixels);
+                let mut image = imagequant::Image::new_borrowed(
+                    &attr,
+                    pixels,
+                    control.width as usize,
+                    control.height as usize,
+                    0.0,
+                )
+                .unwrap();
+                histogram.add_image(&attr, &mut image).unwrap();
+            }
+        } else {
+            break;
+        }
+    }
+
+    let mut res = histogram.quantize(&attr).unwrap();
+    res.set_dithering_level(1.0).unwrap();
+
+    // generate
+
+    let palette: Vec<imagequant::RGBA> = vec![];
+
+    for frame in frames.iter() {
+        let pixels = rgb::FromSlice::as_rgba(&frame.data[..]);
+        let mut image = imagequant::Image::new_borrowed(
+            &attr,
+            pixels,
+            frame.width as usize,
+            frame.height as usize,
+            0.0,
+        )
+        .unwrap();
+        let (palette, pixels) = res.remapped(&mut image).unwrap();
+    }
+
+    println!("{}", merge.len())
+}

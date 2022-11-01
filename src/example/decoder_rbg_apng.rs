@@ -9,7 +9,9 @@ pub fn handel(path: &str) {
         let mut buf = vec![0; reader.output_buffer_size()];
         if let Result::Ok(output) = reader.next_frame(&mut buf) {
             let bytes = &buf[..output.buffer_size()];
-            bufs.push(bytes.to_vec());
+            let v = bytes.to_vec();
+            bufs.push(v);
+            println!("{}", bytes.len())
         } else {
             break;
         }
@@ -17,14 +19,14 @@ pub fn handel(path: &str) {
 
     let info = reader.info();
 
-    println!(
-        "
-    {:?}
-    {:?}
-    {:?}
-    ",
-        info,
-        bufs,
-        bufs.len()
-    )
+    // println!(
+    //     "
+    // {:?}
+    // {:?}
+    // {:?}
+    // ",
+    //     info,
+    //     bufs,
+    //     bufs.len()
+    // )
 }
