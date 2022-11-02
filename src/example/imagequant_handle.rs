@@ -16,6 +16,7 @@ struct Frame {
     delay_den: u16,
     dispose_op: png::DisposeOp,
     blend_op: png::BlendOp,
+    pixels: Option<Vec<u8>>,
 }
 
 impl Frame {
@@ -40,6 +41,7 @@ impl Frame {
             delay_den,
             dispose_op,
             blend_op,
+            pixels: None,
         }
     }
 }
@@ -170,11 +172,10 @@ pub fn apng_imagequant_handle(path: &str) {
     let decoder = png::Decoder::new(File::open(path).unwrap());
     let mut reader = decoder.read_info().unwrap();
     let mut frames: Vec<Frame> = vec![];
-    let mut merge: Vec<rgb::RGBA8> = vec![];
 
     let mut attr = imagequant::new();
     attr.set_speed(1).unwrap();
-    attr.set_quality(0, 100).unwrap();
+    attr.set_quality(20, 100).unwrap();
     let mut histogram = imagequant::Histogram::new(&attr);
 
     loop {
@@ -218,9 +219,9 @@ pub fn apng_imagequant_handle(path: &str) {
 
     // generate
 
-    let palette: Vec<imagequant::RGBA> = vec![];
+    let mut histogram_palette: Vec<imagequant::RGBA> = vec![];
 
-    for frame in frames.iter() {
+    for frame in frames.iter_mut() {
         let pixels = rgb::FromSlice::as_rgba(&frame.data[..]);
         let mut image = imagequant::Image::new_borrowed(
             &attr,
@@ -231,7 +232,53 @@ pub fn apng_imagequant_handle(path: &str) {
         )
         .unwrap();
         let (palette, pixels) = res.remapped(&mut image).unwrap();
+        histogram_palette = palette;
+        frame.pixels = Some(pixels);
     }
 
-    println!("{}", merge.len())
+    let mut rbg_palette: Vec<u8> = Vec::new();
+    let mut trns: Vec<u8> = Vec::new();
+
+    for f in histogram_palette.iter() {
+        rbg_palette.push(f.r);
+        rbg_palette.push(f.g);
+        rbg_palette.push(f.b);
+        trns.push(f.a);
+    }
+
+    let info = reader.info();
+
+    let path = Path::new("pngs/apng_indexes_image.png");
+    let file = File::create(path).unwrap();
+    let ref mut w = BufWriter::new(file);
+
+    let mut encoder = png::Encoder::new(w, info.width, info.height); // Width is 2 pixels and height is 1.
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_color(png::ColorType::Indexed);
+    encoder.set_trns(trns);
+    encoder.set_palette(rbg_palette);
+
+    if let Some(animation) = info.animation_control {
+        encoder
+            .set_animated(animation.num_frames, animation.num_plays)
+            .unwrap();
+        let mut writer = encoder.write_header().unwrap();
+
+        for frame in frames.iter() {
+            if let Some(pixels) = &frame.pixels {
+                writer
+                    .set_frame_dimension(frame.width, frame.height)
+                    .unwrap();
+                writer
+                    .set_frame_position(frame.x_offset, frame.y_offset)
+                    .unwrap();
+                writer
+                    .set_frame_delay(frame.delay_num, frame.delay_den)
+                    .unwrap();
+                writer.set_blend_op(frame.blend_op).unwrap();
+                writer.set_dispose_op(frame.dispose_op).unwrap();
+                writer.write_image_data(&pixels).unwrap(); // Save
+            }
+        }
+    }
 }
